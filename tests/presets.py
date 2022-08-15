@@ -47,3 +47,11 @@ INTROSPECTION_SETTINGS = {
     "READ_SCOPE": "read",
     "WRITE_SCOPE": "write",
 }
+
+STRAWBERRY_GRAPHQL_SCOPES = {
+    "SCOPES": {
+        "read": "Read scope",
+        "write": "Write scope",
+        "scope1": "Scope 1",
+    }
+}
