@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from typing import List
+from unittest.mock import patch
 
 import pytest
 import strawberry
@@ -69,7 +70,22 @@ class Query:
     )
 
 
-schema = strawberry.Schema(query=Query)
+@strawberry.type
+class Mutation:
+    @staticmethod
+    def _add_book_mutation(title: str, author: str):
+        return Book(title=title, author=author)
+
+    @strawberry.mutation(permission_classes=[TokenHasWriteScope])
+    def add_book(self, title: str, author: str) -> Book:
+        return Mutation._add_book_mutation(title, author)
+
+    @strawberry.mutation(permission_classes=[IsAuthenticatedTokenHasWriteScope])
+    def add_book2(self, title: str, author: str) -> Book:
+        return Mutation._add_book_mutation(title, author)
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation)
 
 urlpatterns = [path("graphql", GraphQLView.as_view(schema=schema), name="graphql")]
 
@@ -134,6 +150,14 @@ class TestOAuth2AuthenticationStrawberry(TestCase):
         response_content = json.loads(response.content)
         self.assertNotIn("errors", response_content)
         self.assertEqual(expected_result, response_content)
+
+    def test_get_books_authentication_denied_different_authentication(self):
+        self.client.login(username="test_user", password="123456")
+        data = {"query": "query{books {title}}"}
+        response: JsonResponse = self.client.post("/graphql", data=data, content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertIn("errors", response_content)
 
     def test_get_books_authentication_denied_missing_scope(self):
         access_token = AccessToken.objects.create(
@@ -268,3 +292,141 @@ class TestOAuth2AuthenticationStrawberry(TestCase):
         )
 
         self.assertIn(expected_error, response.content.decode("utf-8"))
+
+    def test_add_book_authentication_allow(self):
+        auth = self._create_authorization_header(self.access_token.token)
+        data = {
+            "query": """mutation {
+                  addBook(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post(
+                "/graphql", HTTP_AUTHORIZATION=auth, data=data, content_type="application/json"
+            )
+            expected_result = {"data": {"addBook": {"title": "The Little Prince"}}}
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertNotIn("errors", response_content)
+            self.assertEqual(expected_result, response_content)
+            mock_add_book.assert_called_once()
+
+    def test_add_book_authentication_denied_different_authentication(self):
+        self.client.login(username="test_user", password="123456")
+        data = {
+            "query": """mutation {
+                  addBook(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post("/graphql", data=data, content_type="application/json")
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertIn("errors", response_content)
+            mock_add_book.assert_not_called()
+
+    def test_add_book_authentication_denied_missing_write_scope(self):
+        access_token = AccessToken.objects.create(
+            user=self.test_user,
+            scope="read",
+            expires=timezone.now() + timedelta(seconds=300),
+            token="secret-access-token-key-read-only",
+            application=self.application,
+        )
+
+        auth = self._create_authorization_header(access_token.token)
+        data = {
+            "query": """mutation {
+                  addBook(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post(
+                "/graphql", HTTP_AUTHORIZATION=auth, data=data, content_type="application/json"
+            )
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertIn("errors", response_content)
+            mock_add_book.assert_not_called()
+
+    def test_add_book2_authentication_allow(self):
+        auth = self._create_authorization_header(self.access_token.token)
+        data = {
+            "query": """mutation {
+                  addBook2(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post(
+                "/graphql", HTTP_AUTHORIZATION=auth, data=data, content_type="application/json"
+            )
+            expected_result = {"data": {"addBook2": {"title": "The Little Prince"}}}
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertNotIn("errors", response_content)
+            self.assertEqual(expected_result, response_content)
+            mock_add_book.assert_called_once()
+
+    def test_add_book2_authentication_denied_missing_write_scope(self):
+        access_token = AccessToken.objects.create(
+            user=self.test_user,
+            scope="read",
+            expires=timezone.now() + timedelta(seconds=300),
+            token="secret-access-token-key-read-only",
+            application=self.application,
+        )
+
+        auth = self._create_authorization_header(access_token.token)
+        data = {
+            "query": """mutation {
+                  addBook2(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post(
+                "/graphql", HTTP_AUTHORIZATION=auth, data=data, content_type="application/json"
+            )
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertIn("errors", response_content)
+            mock_add_book.assert_not_called()
+
+    def test_add_book2_authentication_allow_different_authentication(self):
+        self.client.login(username="test_user", password="123456")
+        data = {
+            "query": """mutation {
+                  addBook2(title: "The Little Prince", author: "Antoine de Saint-Exupéry") {
+                    title
+                  }
+                }"""
+        }
+
+        with patch("tests.test_strawberry_graphql.Mutation._add_book_mutation") as mock_add_book:
+            mock_add_book.return_value = Book(title="The Little Prince", author="Antoine de Saint-Exupéry")
+            response: JsonResponse = self.client.post("/graphql", data=data, content_type="application/json")
+            expected_result = {"data": {"addBook2": {"title": "The Little Prince"}}}
+            self.assertEqual(response.status_code, 200)
+            response_content = json.loads(response.content)
+            self.assertNotIn("errors", response_content)
+            self.assertEqual(expected_result, response_content)
+            mock_add_book.assert_called_once()
