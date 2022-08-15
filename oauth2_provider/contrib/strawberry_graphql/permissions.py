@@ -59,7 +59,7 @@ class BaseTokenPermission(ABC):
         assert False, (
             "TokenHasScope requires the"
             "`oauth2_provider.contrib.strawberry_graphql.authentication.StrawberryOauth2Backend`"
-            " authentication class to be used."
+            " authentication backend to be used."
         )
 
 
@@ -99,7 +99,7 @@ class IsAuthenticatedOrTokenHasScope(BasePermission, BaseTokenPermission, ABC):
                     assert False, (
                         "IsAuthenticatedOrTokenHasScope requires the"
                         "`oauth2_provider.contrib.strawberry_graphql.authentication.StrawberryOauth2Backend` "
-                        "authentication class to be used."
+                        "authentication backend to be used."
                     )
                 elif (
                     user.backend
